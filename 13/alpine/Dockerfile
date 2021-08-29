@@ -6,6 +6,9 @@
 
 FROM alpine:3.14
 
+ARG commit_sha
+ARG token
+
 # 70 is the standard uid/gid for "postgres" in Alpine
 # https://git.alpinelinux.org/aports/tree/main/postgresql/postgresql.pre-install?h=3.12-stable
 RUN set -eux; \
@@ -22,29 +25,15 @@ ENV LANG en_US.utf8
 
 RUN mkdir /docker-entrypoint-initdb.d
 
-ENV PG_MAJOR 13
-ENV PG_VERSION 13.4
-ENV PG_SHA256 ea93e10390245f1ce461a54eb5f99a48d8cabd3a08ce4d652ec2169a357bc0cd
-
 RUN set -eux; \
-	\
-	wget -O postgresql.tar.bz2 "https://ftp.postgresql.org/pub/source/v$PG_VERSION/postgresql-$PG_VERSION.tar.bz2"; \
-	echo "$PG_SHA256 *postgresql.tar.bz2" | sha256sum -c -; \
-	mkdir -p /usr/src/postgresql; \
-	tar \
-		--extract \
-		--file postgresql.tar.bz2 \
-		--directory /usr/src/postgresql \
-		--strip-components 1 \
-	; \
-	rm postgresql.tar.bz2; \
-	\
 	apk add --no-cache --virtual .build-deps \
 		bison \
 		coreutils \
+		curl \
 		dpkg-dev dpkg \
 		flex \
 		gcc \
+		clang \
 #		krb5-dev \
 		libc-dev \
 		libedit-dev \
@@ -61,13 +50,29 @@ RUN set -eux; \
 		perl-ipc-run \
 #		perl-dev \
 #		python-dev \
+		python3 \
 #		python3-dev \
 #		tcl-dev \
 		util-linux-dev \
 		zlib-dev \
+		zstd-dev \
 # https://www.postgresql.org/docs/10/static/release-10.html#id-1.11.6.9.5.13
 		icu-dev \
 	; \
+	\
+	curl -o orioledb.tar.gz \
+			--header "Authorization: token $token" \
+			--header "Accept: application/vnd.github.v3.raw" \
+			--remote-name \
+			--location https://github.com/orioledb/orioledb/tarball/$commit_sha; \
+	mkdir -p /usr/src/postgresql; \
+	tar \
+		--extract \
+		--file orioledb.tar.gz \
+		--directory /usr/src/postgresql \
+		--strip-components 1 \
+	; \
+	rm orioledb.tar.gz; \
 	\
 	cd /usr/src/postgresql; \
 # update "DEFAULT_PGSOCKET_DIR" to "/var/run/postgresql" (matching Debian)
@@ -81,7 +86,7 @@ RUN set -eux; \
 	wget -O config/config.sub 'https://git.savannah.gnu.org/cgit/config.git/plain/config.sub?id=7d3d27baf8107b630586c962c057e22149653deb'; \
 # configure options taken from:
 # https://anonscm.debian.org/cgit/pkg-postgresql/postgresql.git/tree/debian/rules?h=9.5
-	./configure \
+	( CC=clang ./configure \
 		--build="$gnuArch" \
 # "/usr/src/postgresql/src/backend/access/common/tupconvert.c:105: undefined reference to `libintl_gettext'"
 #		--enable-nls \
@@ -112,9 +117,10 @@ RUN set -eux; \
 		--with-libxslt \
 		--with-icu \
 		--with-llvm \
-	; \
-	make -j "$(nproc)" world; \
-	make install-world; \
+	|| cat config.log ); \
+	make -j "$(nproc)"; \
+	make -C contrib -j "$(nproc)"; \
+	make install; \
 	make -C contrib install; \
 	\
 	runDeps="$( \
