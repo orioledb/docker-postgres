@@ -64,7 +64,7 @@ RUN set -eux; \
 			--header "Authorization: token $token" \
 			--header "Accept: application/vnd.github.v3.raw" \
 			--remote-name \
-			--location https://github.com/orioledb/orioledb/tarball/$commit_sha; \
+			--location https://api.github.com/repos/orioledb/orioledb/tarball//$commit_sha; \
 	mkdir -p /usr/src/postgresql; \
 	tar \
 		--extract \
